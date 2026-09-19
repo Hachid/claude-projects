@@ -2,6 +2,80 @@
 
 > Log mais recente no topo. Cada sessão = uma entrada datada. Sessões anteriores a 2026-08-06: `PROGRESSO-ARQUIVO.md` (histórico completo preservado, não deletado).
 
+## 2026-09-18 — PDF: subtítulo do cabeçalho sobrepondo o corpo (consolidado GAEP-MOS)
+
+**Sessão**: Usuário reportou, com prints, que o consolidado do GAEP-MOS saía com o subtítulo do cabeçalho ("Relatório de atividades GAEP-MOS") sobreposto ao corpo da página — visível colidindo com a primeira caixa de conteúdo ("Ocorrências: ..."). Tinha tentado ajustar a margem em Gestão › Relatório › Subtítulo sem nenhum efeito. Pedido explícito de `/brainstorming` pra entender a causa antes de mexer.
+
+### Diagnóstico
+
+O cabeçalho de todo PDF oficial (consolidado, relatório individual, efetivo) é o `headerTemplate`/`footerTemplate` nativo do Chromium via Playwright (`lib/pdf/pdfLetterheadTemplates.ts` + `lib/pdf/renderRelatorioPdfPlaywright.ts`), renderizado numa caixa cuja altura é `margin.top`/`margin.bottom`. Dois problemas empilhados:
+
+1. `LETTERHEAD_MIN_MARGIN_MM.top = 34mm` foi calibrado (spec de 2026-08-08) para título institucional de **3 linhas**. O título do GAEP-MOS quebra em **4 linhas** porque a caixa do header no Chromium é mais estreita do que parece — não é a largura inteira da A4, é a página **menos as margens esquerda/direita** (confirmado empiricamente: gerei PDFs reais fixando `margin.top` em 34/40/50/60mm — 34mm sobrepõe, 40mm não). Uma primeira tentativa de correção, medindo a altura do header renderizado numa página normal na largura cheia da A4, subestimou a altura real por essa mesma razão e não resolveu nada até a largura ser corrigida.
+2. Os campos de estilo de Título/Subtítulo em Gestão (fonte, cor, alinhamento, margens) **não têm efeito nenhum** no cabeçalho desde o redesenho de 2026-08-08 — `buildLetterheadHeaderTemplate` nunca lê `config.tituloEstilo`/`config.subtituloEstilo`, só usa CSS fixo no código. Por isso o ajuste do usuário não mudou nada: o campo que ele editou nunca foi lido pelo cabeçalho real.
+
+### Fix
+
+`lib/pdf/renderRelatorioPdfPlaywright.ts`: antes de gerar o PDF final, mede a altura real do header/footer numa página descartável do mesmo browser já aberto, na largura correta (`headerFooterContentWidthMm` = largura A4 − margens esquerda/direita), e usa `max(margem configurada, altura medida + 2mm de folga)` como margem efetiva. Cai pro comportamento de hoje se a medição falhar (mesma margem de antes, sem regressão). Sem mudança de rota nem de UI — corrige os 3 tipos de PDF de uma vez, e qualquer unidade futura com título longo.
+
+### Testes e verificação
+
+TDD nas funções puras novas (`parseMm`, `effectiveMarginMm`, `headerFooterContentWidthMm` — `lib/pdf/renderRelatorioPdfPlaywright.test.ts`). Regressão visual manual: script fora do repo (`tsx`) reproduzindo o título real do GAEP-MOS + a caixa "Ocorrências" via o pipeline real (`buildLetterheadHeaderTemplate` + `renderHtmlToPdfBuffer`), PDF renderizado com Chromium real (`channel: 'chrome'`) e inspecionado via screenshot — confirmei a sobreposição existente ANTES do fix de largura (mesmo com a medição de altura já implementada) e o layout limpo DEPOIS. `npx tsc --noEmit` limpo; `npm test` — 128 arquivos / 1108 testes passando (suíte inteira, incluindo mudanças de outras sessões em paralelo na mesma branch).
+
+Commit `9a0755e`, só com os 3 arquivos do fix (não varreu outras mudanças não commitadas de outras sessões na mesma branch). Push e PR #41 (`feat/calendario-remarcar-cancelar` → `main`) abertos nesta sessão.
+
+### Code review pós-fix
+
+`/code-review` rodou sobre o diff da branch inteira (não só o fix de PDF — a branch já tinha 20+ commits de outra feature, remarcar/cancelar/reabrir evento de calendário, feitos por sessões em paralelo). **Nenhum achado nos arquivos do fix de PDF.** 15 achados fora do escopo desta sessão, não corrigidos — decisão de priorização deixada pro usuário:
+
+- Cálculo de intervalo do participante (`lib/atividade/metricas.ts`) pega o dia errado em relatório multi-dia, inflando horas no dashboard e gerando falso conflito/omissão de AFI.
+- Ao reabrir/cancelar/remarcar evento como SUPER_ADMIN, a sincronização com o Google usa o `gaepId` do operador em vez do `gaep_id` real do evento — risco de vazar o registro de sync pro GAEP errado.
+- "Dia inteiro" no remarcar de evento não reseta os horários herdados do evento original.
+- Rollback do remarcar deixa `evento_participantes` órfãos se falhar no meio, sem auditoria.
+- Duplicações (helper de paginação, checagem de evento inativo, bloco de escopo+status) e limpezas menores (CSS morto, cores hardcoded, função nunca chamada).
+
+### Pontos de atenção deixados
+
+- Os campos de estilo de Título/Subtítulo em Gestão continuam na UI sem efeito real — não removidos nem sinalizados (decisão consciente, fora do escopo). Próxima sessão que mexer em cabeçalho de PDF: não gastar tempo debugando "por que salvar não funciona" nesses campos — o valor salva certo, só não é lido.
+- **Duas sessões concorrentes na mesma branch** (`feat/calendario-remarcar-cancelar`) durante esta sessão: commits `edca08d` e `bc42b6d` apareceram localmente sem eu ter feito nada, exigindo `git push` de novo antes do PR pegar tudo. Mesma lição de processo já registrada em 2026-09-16/17 sobre duas sessões no mesmo diretório — aqui não houve troca de branch, só push assíncrono de outra sessão, mas vale o mesmo cuidado de conferir `git log origin/<branch>..HEAD` antes de abrir PR.
+- Os 15 achados do code review (branch inteira) não foram triados nem corrigidos — ver `memory.md` para o resumo e decidir prioridade numa próxima sessão.
+
+## 2026-08-20 — Dashboard: análise cross-GAEP para quem é lotado no SEGAEP
+
+**Sessão**: Usuário reportou (com print da tela) que o filtro "Unidade na análise" do dashboard aparecia só para ele (SUPER_ADMIN). Pedido: todo usuário vinculado ao SEGAEP deve enxergar a dashboard dos outros GAEPs, para gerar relatórios. Tarefa curta e fechada — sem brainstorming, o requisito já vinha completo.
+
+### Diagnóstico
+
+O gate estava replicado em três pontos, todos comparando `perfil === 'SUPER_ADMIN'`:
+
+1. `resolveAnaliseGaepIds` (`app/(app)/dashboard/gaepScope.ts`) — resolvia o escopo de GAEPs da análise.
+2. `fetchRelatoriosParaConsolidadoPdf` (`app/(app)/dashboard/actions.ts`) — corpo do PDF consolidado.
+3. `dashboard/page.tsx` — montagem de `listaGaepsAnalise`, que alimenta o select.
+
+Um operador ou admin lotado no SEGAEP caía no ramo restrito dos três e ficava preso à própria unidade.
+
+### Decisão de desenho (virou ADR-011)
+
+A saída mais curta seria deixar o SEGAEP trocar a **unidade ativa** — o cookie `gaep-atuando` de `resolverGaepAtivo`. Recusado: a unidade ativa vale para toda Server Action (é lida dentro do próprio `requireOperador`), então isso daria **escrita** em GAEP alheio para resolver um problema de **leitura**.
+
+Optamos por um gate separado, `podeAnalisarOutrosGaeps` (`lib/auth/analise-cross-gaep.ts`): `SUPER_ADMIN` **ou** unidade ativa com código `SEGAEP`. Só leitura analítica, nada além. Consequência assumida: o seletor de unidade da sidebar (`gaepsDisponiveis`) **continua exclusivo do SUPER_ADMIN** — mostrá-lo ao SEGAEP seria um controle inócuo, porque `resolverGaepAtivo` ignora o cookie para os demais perfis.
+
+Custo: a consulta de permissão só roda quando o usuário pede escopo diferente do próprio. Reordenei `resolveAnaliseGaepIds` para retornar antes quando não há `analiseGaepId`, então o caminho normal (a esmagadora maioria dos acessos) não ganhou nenhuma query. A rota do PDF já tinha o código da unidade via `requireOperadorWithGaep` e o repassa no novo 5º parâmetro, economizando o SELECT.
+
+Renomeei a prop `isSuperAdmin` → `podeAnaliseCrossGaep` em `DashboardClient`/`FiltrosDash`: o nome antigo passou a mentir sobre o que o booleano controla.
+
+### Testes e verificação
+
+13 testes novos: `app/(app)/dashboard/__tests__/gaepScope.test.ts` (8) e `lib/auth/__tests__/analise-cross-gaep.test.ts` (5). Cobrem operador/admin de GAEP comum bloqueado mesmo pedindo `__ALL__`, SEGAEP liberado por lookup e por código já informado, SUPER_ADMIN inalterado, GAEP inexistente caindo na unidade ativa, e a asserção de que o caminho sem `analiseGaepId` não chama `from()`.
+
+`npx tsc --noEmit` limpo; `npm run build` compila (só os avisos pré-existentes de OTEL/Sentry). Na suíte completa, `GestaoPage.test.tsx` e `testarPromptIA.test.ts` deram timeout — passam isolados, é a oscilação sob carga já documentada no CLAUDE.md, não regressão.
+
+Commit `65a1b0d` direto na `main` (o repo deploya de lá), push feito. **Verificado em produção pelo usuário**: com conta do SEGAEP não-super-admin, "Unidade na análise" aparece com "Minha unidade (SEGAEP)" como padrão e lista os demais GAEPs.
+
+### Pontos de atenção deixados
+
+- O gate compara com o código literal `SEGAEP` (constante `SEGAEP_CODIGO`). Confirmado em `scripts/gaep-ids.json` que é exatamente esse o código no banco. Uma segunda unidade coordenadora exigiria flag em `gaeps`, não outro literal.
+- Assimetria consciente: **Calendário › Disponibilidade** e **Gestão › Efetivo** continuam com a regra mais estrita (`SUPER_ADMIN` *atuando como* SEGAEP, decidida na própria `page.tsx`, com testes que asseguram a string exata da expressão). Não foram tocados — o pedido era do dashboard. Se um dia forem alinhados, migrar para `podeAnalisarOutrosGaeps` em vez de duplicar a comparação.
+
 ## 2026-08-18 (tarde) — QTS (Quadro de Trabalho Semanal) + Gestão › Afastamento (tipos configuráveis)
 
 **Sessão**: Usuário reportou dois pedidos pendentes de sessões anteriores (o segundo já pedido ~3×): (1) botão "QTS" não aparecia no Calendário — não existia em lugar nenhum do código/specs, precisou de brainstorming em `AskUserQuestion` pra definir o escopo; (2) menu Gestão → Calendário (só um atalho duplicado para `/calendario`) devia virar Gestão → Afastamento, uma tela de CRUD (Admin/SuperAdmin) para tipos de afastamento.
