@@ -26,7 +26,8 @@ claude-projects/
 ├── clientes/            ← um folder por cliente (NDA-safe)
 ├── pessoal/             ← anotações pessoais (saúde, finanças, ideias)
 └── projetos/            ← um folder por projeto técnico
-    ├── whatsapp-bot/
+    ├── SaaS-Resolutiva/
+    ├── sistema-gaep/
     ├── erp-local/
     └── thermal-camera/
 ```
@@ -75,9 +76,12 @@ Se houver decisão arquitetural, crie uma nota em notas/decisoes/.
 
 | Projeto | Pasta | Status | Última atualização |
 |---|---|---|---|
-| WhatsApp Bot | [`projetos/whatsapp-bot/`](projetos/whatsapp-bot/SPEC.md) | 🟢 ativo | 2026-05-06 |
+| Sistema GAEP | [`projetos/sistema-gaep/`](projetos/sistema-gaep/SPEC.md) | 🟢 ativo | 2026-05-06 |
+| SaaS Resolutiva | [`projetos/SaaS-Resolutiva/`](projetos/SaaS-Resolutiva/SPEC.md) | 🟢 ativo | 2026-05-12 |
 | ERP Local | `projetos/erp-local/` (criar) | ⚪ planejado | — |
 | Thermal Camera | `projetos/thermal-camera/` (criar) | ⚪ planejado | — |
+
+> **Isolamento de contexto** entre projetos: ao abrir uma sessão Claude Code, **carregue apenas os arquivos do projeto em questão** (use o "Priming pronto" no `PROGRESSO.md` daquele projeto). Não cruze contextos — uma sessão = um projeto.
 
 > Atualize esta tabela sempre que abrir/arquivar um projeto.
 
